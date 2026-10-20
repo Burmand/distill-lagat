@@ -1,3 +1,6 @@
+"""
+Run agents in the environment and measure how good the result is
+"""
 import torch
 import torch.nn.functional as F
 from pogema import pogema_v0, AnimationMonitor
@@ -10,6 +13,7 @@ from .features import (
 from .utils import suppress_stdout
 
 
+# The expert (LaCAM), used for collecting expert data
 @suppress_stdout()
 def run_full_horizon_planner(planner, grid_config, animation=False):
     env = pogema_v0(grid_config=grid_config)
@@ -34,7 +38,7 @@ def run_full_horizon_planner(planner, grid_config, animation=False):
 
     return env, all_actions, all_observations, all_terminated
 
-
+# Runs the model in the environment
 @torch.no_grad()
 def run_neural_policy(
     model,
@@ -46,12 +50,12 @@ def run_neural_policy(
     **_,
 ):
     model.eval()
-    env = pogema_v0(grid_config=grid_config)
+    env = pogema_v0(grid_config=grid_config) # Create the environment
     if animation:
         env = AnimationMonitor(env)
 
-    obs, infos = env.reset()
-    cost_to_go_matrices = get_cost_to_go_matrices(obs)
+    obs, infos = env.reset() # Place the agents. obs is a list with one dictionary per agent (position, goal, what it sees)
+    cost_to_go_matrices = get_cost_to_go_matrices(obs) # Distance to each agent's goal
     params = dict(
         obs_radius=model.obs_radius,
         cost_to_go_matrices=cost_to_go_matrices,
@@ -64,8 +68,8 @@ def run_neural_policy(
     for _ in range(max_episodes):
         # sample action
         data = get_pyg_data_from_observations(obs, **params).to(device)
-        probs = F.softmax(model(data) / sampling_temperature, dim=-1).detach().cpu()
-        actions = torch.multinomial(probs, num_samples=1).squeeze(-1).numpy()
+        probs = F.softmax(model(data) / sampling_temperature, dim=-1).detach().cpu() # Turn the scores into probabilities
+        actions = torch.multinomial(probs, num_samples=1).squeeze(-1).numpy() # Sample from the probability distribution
 
         all_observations.append(obs)
         all_actions.append(actions)
