@@ -39,7 +39,7 @@ def run_full_horizon_planner(planner, grid_config, animation=False):
     return env, all_actions, all_observations, all_terminated
 
 # Runs the model in the environment
-@torch.no_grad()
+@torch.no_grad() # Gradients are not recorded, so this is for evaluation only
 def run_neural_policy(
     model,
     grid_config,
@@ -68,7 +68,8 @@ def run_neural_policy(
     for _ in range(max_episodes):
         # sample action
         data = get_pyg_data_from_observations(obs, **params).to(device)
-        probs = F.softmax(model(data) / sampling_temperature, dim=-1).detach().cpu() # Turn the scores into probabilities
+        # Turn the scores into probabilities; detach() cuts the link to the model's gradient record (here redundant?)
+        probs = F.softmax(model(data) / sampling_temperature, dim=-1).detach().cpu() 
         actions = torch.multinomial(probs, num_samples=1).squeeze(-1).numpy() # Sample from the probability distribution
 
         all_observations.append(obs)
