@@ -13,7 +13,17 @@ grid_config = GridConfig(
 
 env, actions, observations, terminated, log_probs = run_neural_policy_rl(model, grid_config)
 
+# Calculate cost
+quality = get_solution_quality(actions, observations, terminated)
+C = quality["sum_of_costs"]
+# Cost-based RL loss
+loss = C * torch.stack(log_probs).sum()
+loss.backward()
+
 print("steps:", len(log_probs))
 print("shape of one step:", log_probs[0].shape)
 print("has gradient link:", log_probs[0].requires_grad)
-print(get_solution_quality(actions, observations, terminated))
+print(quality)
+print("solved:", quality["solved"], "cost C:", C)
+print("loss:", loss.item())
+print("gradient on first weight exists:", next(model.parameters()).grad is not None)
