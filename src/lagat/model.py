@@ -96,6 +96,7 @@ class GNNPlanner(nn.Module):
         x_comm = self.gnn(
             x_enc, edge_index=data["edge_index"], edge_attr=data["edge_attr"]
         )
+        # Residual connection, so that the agent's own view isn't lost
         x = self.decoder(x_comm + x_enc)
         return x
 
