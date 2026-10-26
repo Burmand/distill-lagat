@@ -18,6 +18,7 @@ def run_neural_policy_rl(
     max_episodes: int = 128,
     device: str = "cpu",
     sampling_temperature: float = 1.0,
+    greedy: bool = False, # True = always take the best move (testing), False = sample (training)
     **_,
 ):
     model.eval()
@@ -45,7 +46,12 @@ def run_neural_policy_rl(
         # No detach(). probs must stay linked to the model so loss.backward() can learn from them
         probs = F.softmax(model(data) / sampling_temperature, dim=-1).cpu()
 
-        sampled = torch.multinomial(probs, num_samples = 1) # Tensor with shape [num_agents, 1]
+        # Training - sample a move; Testing - take the most likely move
+        if greedy:
+            sampled = probs.argmax(dim = -1, keepdim = True)
+        else:
+            sampled = torch.multinomial(probs, num_samples = 1) # Tensor with shape [num_agents, 1]
+
         all_log_probs.append(torch.log(probs).gather(1, sampled).squeeze(-1)) # Shape [num_agents]
 
         actions = sampled.squeeze(-1).numpy()

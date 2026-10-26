@@ -11,7 +11,7 @@ grid_config = GridConfig(
     observation_type="MAPF", on_target="nothing", collision_system="soft",
 )
 
-env, actions, observations, terminated, log_probs = run_neural_policy_rl(model, grid_config)
+env, actions, observations, terminated, log_probs = run_neural_policy_rl(model, grid_config, greedy = True)
 
 # Calculate cost
 quality = get_solution_quality(actions, observations, terminated)
