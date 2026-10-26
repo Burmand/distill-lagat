@@ -9,11 +9,16 @@ from lagat.features import get_cost_to_go_matrices
 random.seed(0)
 torch.manual_seed(0)    
 
-FROM_SCRATCH = True  # False = Pretrained model
-LOSS = "baseline" # "cost" = C * log P (slides' cost loss), "baseline" = (C - B) * log P with B = batch average
+FROM_SCRATCH = False  # False = Pretrained model
+LOSS = "delay" # "cost" = C * log P, "delay" = C - lower bound
+BASELINE = True # True = substract the batch average B, False = plain loss 
+
 NUM_BATCHES = 50
 K = 8 # Episodes per batch
 MAX_STEPS = 128
+AGENT_COUNTS = [8,9,10]
+MAP_SIZE = 20
+
 
 # load the model
 if FROM_SCRATCH:
@@ -21,7 +26,7 @@ if FROM_SCRATCH:
 else:
     model = GNNPlanner.reconstruct("assets/pretrained/success_best.pt")
 # Create the optimizer
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3 if FROM_SCRATCH else 1e-4)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3 if FROM_SCRATCH else 1e-5)
 
 
 TEST_SEEDS = range(10000, 10020) # 20 Fixed scenarios, different from seeds used in training
@@ -34,7 +39,7 @@ def evaluate(model):
         num_agents = [2,3,4][i % 3]
 
         grid_config = GridConfig(
-            num_agents=num_agents, size=10, density=0.2, seed=seed,
+            num_agents=AGENT_COUNTS[i % len(AGENT_COUNTS)], size=MAP_SIZE, density=0.2, seed=seed,
             max_episode_steps=MAX_STEPS, obs_radius=5,
             observation_type="MAPF", on_target="nothing",
             collision_system="soft",
@@ -64,9 +69,9 @@ for batch in range(NUM_BATCHES):
     log_prob_sums, costs, successes = [], [], []
 
     for k in range(K):
-        num_agents = random.choice([2, 3, 4])
+        num_agents = random.choice(AGENT_COUNTS)
         grid_config = GridConfig(
-            num_agents=num_agents, size=10, density=0.2, seed=batch * K +k,
+            num_agents=num_agents, size=MAP_SIZE, density=0.2, seed=batch * K +k,
             max_episode_steps=MAX_STEPS, obs_radius=5,
             observation_type="MAPF", on_target="nothing",
             collision_system="soft",
@@ -81,16 +86,20 @@ for batch in range(NUM_BATCHES):
         if not quality["solved"]:
             D = get_cost_to_go_matrices(observations[0]) # Distance maps, one per agent
             remaining = sum([D[i][observations[-1][i]["global_xy"]] for i in range (num_agents)]) # -1 = last step
-            C = MAX_STEPS * num_agents + remaining # Failure cost is time limit + remaining distance 
-        C = C / num_agents # cost per agent, so that episodes with different agent counts are comparable
+            C = MAX_STEPS * num_agents + remaining # Failure cost is time limit + remaining distance
+        
+        if LOSS == "delay":
+            C = C - quality["sum_of_costs_lb"]
 
+        C = C / num_agents # cost per agent, so that episodes with different agent counts are comparable
+        
         # Sum of log P of all moves in this episode
         log_prob_sums.append(torch.stack(log_probs).sum())
 
         costs.append(C)
         successes.append(quality["solved"])
 
-    B = sum(costs) / K if LOSS == "baseline" else 0 # 0 for the plain cost loss, batch average cost for the baseline loss
+    B = sum(costs) / K if BASELINE else 0 # 0 for the plain cost loss, batch average cost for the baseline loss
     loss = torch.stack([(c - B) * lp for c, lp in zip(costs, log_prob_sums)]).mean()
 
     optimizer.zero_grad() # Clear gradients from the previous batch
@@ -104,4 +113,4 @@ for batch in range(NUM_BATCHES):
         print("test:", evaluate(model))
 
 # Save the trained model (weights + settings) so eval_model.py can test it
-model.save(f"outputs/rl_scratch_{LOSS}.pt")
+model.save(f"outputs/rl_{'scratch' if FROM_SCRATCH else 'pretrained'}_{LOSS}_{'base' if BASELINE else 'nobase'}.pt")
