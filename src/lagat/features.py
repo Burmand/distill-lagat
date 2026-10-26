@@ -1,3 +1,6 @@
+"""
+Transform the information from Pogema into the input for the model
+"""
 import numpy as np
 from collections import deque
 import torch
@@ -5,7 +8,7 @@ from torch_geometric.utils import dense_to_sparse
 from torch_geometric.data import Data
 from scipy.spatial.distance import squareform, pdist
 
-
+# For every cell on the map, how many steps is it from this agent's goal?
 def get_cost_to_go_matrix(
     global_obstacles: np.ndarray, goal: tuple[int, int]
 ) -> np.ndarray:
@@ -28,7 +31,7 @@ def get_cost_to_go_matrix(
                 Q.append(v)
     return cost_to_go
 
-
+# Run get_cost_to_go_matrix for each agent
 def get_cost_to_go_matrices(onestep_observations) -> np.ndarray:
     return np.array(
         [
@@ -37,7 +40,10 @@ def get_cost_to_go_matrices(onestep_observations) -> np.ndarray:
         ]
     )
 
-
+# For each agent, build its input: two 11x11 maps (channels) centered on the agent
+# Channel 0 - distance to goal: cut 11x11 out of the agent's distance map, then rescale
+# Channel 1 - other agents: Pogema's 11x11 view of where the other agents are
+# Then the two channels are stacked. Result: [num_agents, 2, 11, 11]
 def get_node_feature_from_observations(
     observations,
     obs_radius: int,
@@ -73,7 +79,11 @@ def get_node_feature_from_observations(
     node_features = np.stack(node_features)
     return node_features
 
-
+# Build the model's input (one PyTorch Geometric Data object) from one time step of observations
+# x - each agent's 2x11x11 input
+# edge_index - which agents are linked (within the Euclidean distance of 5) plus self-loops
+# edge_attr - 3 attributes per link (dx, dy, Manhattan distance)
+# y - the expert's moves (when given)
 def get_pyg_data_from_observations(
     observations,
     obs_radius: int,
@@ -96,6 +106,7 @@ def get_pyg_data_from_observations(
     Adj = squareform(pdist(global_xys, "euclidean"))
     mask = Adj <= obs_radius
     Adj = Adj * mask
+    # Self-loop is needed so that the agent wouldn't drop its own information
     Adj += np.eye(Adj.shape[0])  # self-loop
 
     # edge features
@@ -116,7 +127,7 @@ def get_pyg_data_from_observations(
         data.y = torch.from_numpy(np.array(actions))
     return data
 
-
+# Turn one recorded expert run (episode) into training data
 def get_pyg_datalist_from_one_instance(
     dataset_ins,
     obs_radius: int,

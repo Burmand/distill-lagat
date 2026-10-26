@@ -1,3 +1,7 @@
+"""
+Supervised training: teaches the model to copy an expert planner.
+The model guesses a move, and is adjusted when it differs from the expert's
+"""
 import os
 import pickle
 from loguru import logger
@@ -127,11 +131,12 @@ def main(cfg):
         for batch in tqdm(dataloader_train, desc="step_train", leave=False):
             batch = batch.to(cfg.device)
             logits = model(batch)
+            # The difference from the expert. logits = the model's 5 scores; batch.y = the expert's move
             loss = F.cross_entropy(logits, batch.y)
             acc = (torch.argmax(logits, dim=1) == batch.y).float().mean()
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad() # Clear gradients from the previous batch
+            loss.backward() # Backpropagation. Compute how each weight should change
+            optimizer.step() # Gradient descent step. Update the weights
             losses.append(loss.item())
             accuracies.append(acc.item())
         stats["loss/train"] = np.mean(losses)
