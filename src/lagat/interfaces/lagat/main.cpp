@@ -7,9 +7,12 @@
 #include <policy.hpp>
 #include <utils.hpp>
 
+#include <torch/torch.h>
+
 const auto tmpdir = std::filesystem::temp_directory_path();
 const auto map_name = tmpdir / "tmp.map";
 const auto scene_name = tmpdir / "tmp.scene";
+const auto record_name = tmpdir / "recorded_x.pt";  // Recorded x for RL training in Python
 
 extern "C" {
 const char* run_lagat(const char* map_content_cstr,
@@ -53,6 +56,11 @@ const char* run_lagat(const char* map_content_cstr,
   LNS::ON = lns != 0;
   PLNS::NUM_REFINERS = plns_num_refiners;
 
+  // Empty the recorded x from the previous run
+  AgentPolicy::RECORDED_NODE_FEATURES.clear();
+  AgentPolicy::RECORDED_EDGE_INDEX.clear();
+  AgentPolicy::RECORDED_EDGE_ATTR.clear();
+
   // solve
   auto deadline = Deadline(time_limit_sec * 1000);
   set_print_options(deadline, verbose);
@@ -63,6 +71,15 @@ const char* run_lagat(const char* map_content_cstr,
 
   // check feasibility
   if (!is_feasible_solution(ins, solution)) return "ERROR_SOLUTION";
+
+  // Write the recorded x (views, edges, edge info) to a file Python can read with torch.load
+  auto recorded = c10::ivalue::Tuple::create(
+      {AgentPolicy::RECORDED_NODE_FEATURES, AgentPolicy::RECORDED_EDGE_INDEX,
+       AgentPolicy::RECORDED_EDGE_ATTR});
+  std::vector<char> bytes = torch::pickle_save(recorded);  // Turn the 3 lists into bytes
+  std::ofstream record_file(record_name, std::ios::binary);
+  record_file.write(bytes.data(), bytes.size());
+  record_file.close();
 
   auto get_x = [&](int k) { return k % ins.G->width; };
   auto get_y = [&](int k) { return k / ins.G->width; };

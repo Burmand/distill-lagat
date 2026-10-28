@@ -11,6 +11,11 @@ float AgentPolicy::SAMPLING_TEMPERTURE = 1.0;
 AgentPolicy::SamplingStrategy AgentPolicy::SAMPLING_STRATEGY =
     SamplingStrategy::Deterministic;
 
+// Lists start empty and filled during the search
+std::vector<torch::Tensor> AgentPolicy::RECORDED_NODE_FEATURES; // Agent's views
+std::vector<torch::Tensor> AgentPolicy::RECORDED_EDGE_INDEX; // Which agents are connected, pairs of id's
+std::vector<torch::Tensor> AgentPolicy::RECORDED_EDGE_ATTR; // Attributes of the Edge: (dx, dy, distance)
+
 AgentPolicy::AgentPolicy(const Instance* _ins, DistTable* _D, int seed)
     : ins(_ins),
       MT(seed),
@@ -99,16 +104,16 @@ void AgentPolicy::set_preferences_learned(const Config& Q)
 {
   c10::InferenceMode guard(true);
 
-  auto itr = known_config_table.find(Q);
-  if (itr == known_config_table.end()) {
+  auto itr = known_config_table.find(Q); // Look for situation Q in the table
+  if (itr == known_config_table.end()) { // if Q is new
     // model inference
-    set_features(Q);
-    auto&& actions = model.forward(inputs).toTensor();
+    set_features(Q); // Turn Q into x
+    auto&& actions = model.forward(inputs).toTensor(); // Ask the model with x
     ++inference_cnt;
     actions = actions.to(torch::kCPU);
-    itr = std::get<0>(known_config_table.emplace(Q, actions));
+    itr = std::get<0>(known_config_table.emplace(Q, actions)); // Store Q and answers in the table
   }
-  auto&& actions = itr->second;
+  auto&& actions = itr->second; // Take the answer
 
   auto get_cost = [&](const int i, Vertex* v_from, Vertex* v_to) {
     auto v_idx = get_policy_action_index_from_vertex(v_from, v_to);
@@ -233,6 +238,11 @@ void AgentPolicy::set_features(const Config& Q)
   kwargs.insert("edge_index", edge_index.to(device));
   kwargs.insert("edge_attr", edge_attr.to(device));
   inputs[0] = kwargs;
+
+  // Record x for RL training
+  RECORDED_NODE_FEATURES.push_back(node_feature.clone()); // Save the agents' views
+  RECORDED_EDGE_INDEX.push_back(edge_index.clone()); // Save which agents are connected 
+  RECORDED_EDGE_ATTR.push_back(edge_attr.clone()); // Save attributes of connections betwen agents
 
   // cleanup
   for (int i = 0; i < N; ++i) occupied_now[Q[i]->id] = NO_AGENT;

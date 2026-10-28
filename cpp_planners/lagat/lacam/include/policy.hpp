@@ -45,6 +45,9 @@ struct AgentPolicy {
   static int OBSERVATION_RAD;
   static SamplingStrategy SAMPLING_STRATEGY;
   static float SAMPLING_TEMPERTURE;
+  static std::vector<torch::Tensor> RECORDED_NODE_FEATURES; // Agent's views
+  static std::vector<torch::Tensor> RECORDED_EDGE_INDEX; // Which agents are connected, pairs of id's
+  static std::vector<torch::Tensor> RECORDED_EDGE_ATTR; // Attributes of the Edge: (dx, dy, distance)
 
   AgentPolicy(const Instance *_ins, DistTable *_D, int seed = 0);
   ~AgentPolicy();
