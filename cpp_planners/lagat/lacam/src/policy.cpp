@@ -15,6 +15,7 @@ AgentPolicy::SamplingStrategy AgentPolicy::SAMPLING_STRATEGY =
 std::vector<torch::Tensor> AgentPolicy::RECORDED_NODE_FEATURES; // Agent's views
 std::vector<torch::Tensor> AgentPolicy::RECORDED_EDGE_INDEX; // Which agents are connected, pairs of id's
 std::vector<torch::Tensor> AgentPolicy::RECORDED_EDGE_ATTR; // Attributes of the Edge: (dx, dy, distance)
+std::vector<torch::Tensor> AgentPolicy::RECORDED_L; // Top move per agent at each recorded x
 
 AgentPolicy::AgentPolicy(const Instance* _ins, DistTable* _D, int seed)
     : ins(_ins),
@@ -104,13 +105,25 @@ void AgentPolicy::set_preferences_learned(const Config& Q)
 {
   c10::InferenceMode guard(true);
 
+  bool is_new = false; // Only record L when x was recorded too
+
   auto itr = known_config_table.find(Q); // Look for situation Q in the table
   if (itr == known_config_table.end()) { // if Q is new
+    is_new = true;
+
     // model inference
     set_features(Q); // Turn Q into x
     auto&& actions = model.forward(inputs).toTensor(); // Ask the model with x
     ++inference_cnt;
     actions = actions.to(torch::kCPU);
+
+    // Sampling with Gumbel noise, so the top move is a sample from softmax(logits / tau)
+    if(SAMPLING_STRATEGY == SamplingStrategy::Probablistic){
+      auto u = torch::rand_like(actions);
+      auto g = -torch::log(-torch::log(u));
+      actions = actions / SAMPLING_TEMPERTURE + g;
+    }
+
     itr = std::get<0>(known_config_table.emplace(Q, actions)); // Store Q and answers in the table
   }
   auto&& actions = itr->second; // Take the answer
@@ -119,9 +132,9 @@ void AgentPolicy::set_preferences_learned(const Config& Q)
     auto v_idx = get_policy_action_index_from_vertex(v_from, v_to);
     auto acc = actions.accessor<float, 2>();
     auto v_val = -acc[i][v_idx];
-    if (SAMPLING_STRATEGY == SamplingStrategy::Probablistic) {
-      v_val = v_val / SAMPLING_TEMPERTURE - rrd(MT);
-    }
+    //if (SAMPLING_STRATEGY == SamplingStrategy::Probablistic) {
+    //  v_val = v_val / SAMPLING_TEMPERTURE - rrd(MT);
+    //}
 
     if (SAMPLING_STRATEGY == SamplingStrategy::Tiebreaking) {
       /* CS-PIBT paper  */
@@ -147,6 +160,15 @@ void AgentPolicy::set_preferences_learned(const Config& Q)
         preferences[i].begin(), preferences[i].begin() + K + 1,
         [&](auto&& a, auto&& b) { return std::get<1>(a) < std::get<1>(b); });
   }
+
+  if (is_new) {
+    auto L = torch::empty({N}, torch::kLong);  // One move index per agent
+    for (int i = 0; i < N; ++i) {
+      L[i] = get_policy_action_index_from_vertex(Q[i], preferences[i][0].first);
+    }
+    RECORDED_L.push_back(L);
+  }
+
 }
 
 void AgentPolicy::set_features(const Config& Q)

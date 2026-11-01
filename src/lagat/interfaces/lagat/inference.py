@@ -45,6 +45,8 @@ class LagatLib:
             ctypes.c_int,  # lns
             ctypes.c_int,  # plns_num_refiners
             ctypes.c_int,  # verbose
+            ctypes.c_int,  # sampling
+            ctypes.c_float # tau
         ]
         self._lagat_lib.run_lagat.restype = ctypes.c_char_p
 
@@ -72,6 +74,8 @@ class LagatLib:
                 ctypes.c_int(int(cfg.lns)),
                 ctypes.c_int(cfg.plns_num_refiners),
                 ctypes.c_int(cfg.verbose),
+                ctypes.c_int(int(cfg.sampling)),
+                ctypes.c_float(cfg.tau)
             )
 
             try:
@@ -102,6 +106,8 @@ class LagatInferenceConfig(AlgoBase, extra=Extra.forbid):
     lns: bool = True
     plns_num_refiners: int = 4
     verbose: int = 0
+    sampling: bool = False
+    tau: float = 1.0
 
 
 class LagatInference:

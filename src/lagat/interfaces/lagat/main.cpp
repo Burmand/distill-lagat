@@ -20,7 +20,7 @@ const char* run_lagat(const char* map_content_cstr,
                       float time_limit_sec, int seed,
                       const char* model_path_cstr, int deadlock_detection,
                       int deadlock_depth, int lns, int plns_num_refiners,
-                      int verbose);
+                      int verbose, int sampling, float tau); // Add sampling, tau
 }
 
 const char* run_lagat(const char* map_content_cstr,
@@ -28,7 +28,7 @@ const char* run_lagat(const char* map_content_cstr,
                       float time_limit_sec, int seed,
                       const char* model_path_cstr, int deadlock_detection,
                       int deadlock_depth, int lns, int plns_num_refiners,
-                      int verbose)
+                      int verbose, int sampling, float tau) // Add sampling, tau
 {
   std::string map_content(map_content_cstr);
   std::string scene_content(scene_content_cstr);
@@ -51,6 +51,12 @@ const char* run_lagat(const char* map_content_cstr,
 
   AgentPolicy::MODEL_FILEPATH = model_path;
 
+  torch::manual_seed(seed);
+  // Sampling on = Exploration, Sampling off = argmax
+  AgentPolicy::SAMPLING_STRATEGY = sampling ? AgentPolicy::Probablistic : AgentPolicy::Deterministic;
+  // Higher temperature = more random rankings
+  AgentPolicy::SAMPLING_TEMPERTURE = tau;
+
   LaCAM::DEADLOCK_DETECTION = deadlock_detection != 0;
   LaCAM::DEADLOCK_DEPTH = deadlock_depth;
   LNS::ON = lns != 0;
@@ -60,6 +66,7 @@ const char* run_lagat(const char* map_content_cstr,
   AgentPolicy::RECORDED_NODE_FEATURES.clear();
   AgentPolicy::RECORDED_EDGE_INDEX.clear();
   AgentPolicy::RECORDED_EDGE_ATTR.clear();
+  AgentPolicy::RECORDED_L.clear();
 
   // solve
   auto deadline = Deadline(time_limit_sec * 1000);
@@ -72,11 +79,11 @@ const char* run_lagat(const char* map_content_cstr,
   // check feasibility
   if (!is_feasible_solution(ins, solution)) return "ERROR_SOLUTION";
 
-  // Write the recorded x (views, edges, edge info) to a file Python can read with torch.load
+  // Write the recorded x (views, edges, edge info, top moves) to a file Python can read with torch.load
   auto recorded = c10::ivalue::Tuple::create(
       {AgentPolicy::RECORDED_NODE_FEATURES, AgentPolicy::RECORDED_EDGE_INDEX,
-       AgentPolicy::RECORDED_EDGE_ATTR});
-  std::vector<char> bytes = torch::pickle_save(recorded);  // Turn the 3 lists into bytes
+       AgentPolicy::RECORDED_EDGE_ATTR, AgentPolicy::RECORDED_L});
+  std::vector<char> bytes = torch::pickle_save(recorded);  // Turn the 4 lists into bytes
   std::ofstream record_file(record_name, std::ios::binary);
   record_file.write(bytes.data(), bytes.size());
   record_file.close();
