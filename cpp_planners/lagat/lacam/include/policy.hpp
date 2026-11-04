@@ -49,6 +49,7 @@ struct AgentPolicy {
   static std::vector<torch::Tensor> RECORDED_EDGE_INDEX; // Which agents are connected, pairs of id's
   static std::vector<torch::Tensor> RECORDED_EDGE_ATTR; // Attributes of the Edge: (dx, dy, distance)
   static std::vector<torch::Tensor> RECORDED_L; // Top move per agent at each recorded x
+  static std::vector<torch::Tensor> RECORDED_VALID; // Valid moves per agent at each recorded x (true = LaCAM can pick)
 
   AgentPolicy(const Instance *_ins, DistTable *_D, int seed = 0);
   ~AgentPolicy();

@@ -67,6 +67,7 @@ const char* run_lagat(const char* map_content_cstr,
   AgentPolicy::RECORDED_EDGE_INDEX.clear();
   AgentPolicy::RECORDED_EDGE_ATTR.clear();
   AgentPolicy::RECORDED_L.clear();
+  AgentPolicy::RECORDED_VALID.clear();
 
   // solve
   auto deadline = Deadline(time_limit_sec * 1000);
@@ -79,11 +80,11 @@ const char* run_lagat(const char* map_content_cstr,
   // check feasibility
   if (!is_feasible_solution(ins, solution)) return "ERROR_SOLUTION";
 
-  // Write the recorded x (views, edges, edge info, top moves) to a file Python can read with torch.load
+  // Write the recorded x (views, edges, edge info, top moves, valid moves) to a file Python can read with torch.load
   auto recorded = c10::ivalue::Tuple::create(
       {AgentPolicy::RECORDED_NODE_FEATURES, AgentPolicy::RECORDED_EDGE_INDEX,
-       AgentPolicy::RECORDED_EDGE_ATTR, AgentPolicy::RECORDED_L});
-  std::vector<char> bytes = torch::pickle_save(recorded);  // Turn the 4 lists into bytes
+       AgentPolicy::RECORDED_EDGE_ATTR, AgentPolicy::RECORDED_L, AgentPolicy::RECORDED_VALID});
+  std::vector<char> bytes = torch::pickle_save(recorded);  // Turn the 5 lists into bytes
   std::ofstream record_file(record_name, std::ios::binary);
   record_file.write(bytes.data(), bytes.size());
   record_file.close();

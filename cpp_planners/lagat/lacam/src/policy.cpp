@@ -16,6 +16,7 @@ std::vector<torch::Tensor> AgentPolicy::RECORDED_NODE_FEATURES; // Agent's views
 std::vector<torch::Tensor> AgentPolicy::RECORDED_EDGE_INDEX; // Which agents are connected, pairs of id's
 std::vector<torch::Tensor> AgentPolicy::RECORDED_EDGE_ATTR; // Attributes of the Edge: (dx, dy, distance)
 std::vector<torch::Tensor> AgentPolicy::RECORDED_L; // Top move per agent at each recorded x
+std::vector<torch::Tensor> AgentPolicy::RECORDED_VALID; // Valid moves per agent at each recorded x (true = LaCAM can pick)
 
 AgentPolicy::AgentPolicy(const Instance* _ins, DistTable* _D, int seed)
     : ins(_ins),
@@ -163,10 +164,20 @@ void AgentPolicy::set_preferences_learned(const Config& Q)
 
   if (is_new) {
     auto L = torch::empty({N}, torch::kLong);  // One move index per agent
+    auto valid = torch::zeros({N, 5}, torch::kBool); // Create a tensor with 5 possible moves per agent (all false)
     for (int i = 0; i < N; ++i) {
       L[i] = get_policy_action_index_from_vertex(Q[i], preferences[i][0].first);
+
+
+      const auto K = Q[i]->neighbor.size();
+      
+      for(int k = 0; k <= K; k++){ // Check every neighboring cell for validity
+          auto slot = get_policy_action_index_from_vertex(Q[i], Q[i]->actions[k]); // which of the 5 moves is this
+          valid[i][slot] = true;
+      }
     }
     RECORDED_L.push_back(L);
+    RECORDED_VALID.push_back(valid);
   }
 
 }
