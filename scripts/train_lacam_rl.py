@@ -1,15 +1,14 @@
 import torch
 from torch_geometric.data import Data
 import torch.nn.functional as F
-from pogema import GridConfig
 from lagat.interfaces.lagat.inference import LagatInference, LagatInferenceConfig
 from lagat.run_planners import run_full_horizon_planner, get_solution_quality
 from lagat.model import GNNPlanner
 import tempfile
 import os
-import random
+from omegaconf import OmegaConf
+from hydra.utils import instantiate
 
-random.seed(0)
 torch.manual_seed(0)   
 
 FROM_SCRATCH = False # False = Pretrained model
@@ -18,9 +17,6 @@ BASELINE = True # True = substract the batch average B, False = plain loss
 
 NUM_BATCHES = 5
 K = 8 # Episodes per batch
-MAX_STEPS = 128
-AGENT_COUNTS = [4]
-MAP_SIZE = 20
 ENTROPY_ALPHA = 1e-3
 
 # LaCAM starts with the pretrained model; after each update it uses our updated copy
@@ -28,26 +24,26 @@ current_jit = "assets/pretrained/success_best_jit.pt"
 JIT_PATH = "outputs/lacam_rl_jit.pt"
 RECORD_PATH = os.path.join(tempfile.gettempdir(), "recorded_x.pt")
 
+# Repo's map generator. 17-21 random/maze maps with 2, 5 or 10 agents
+conf = OmegaConf.load("scripts/conf/grid_config/small_agents.yaml")
+make_map = instantiate(config=conf)
+
 # Python copy of the model with the same weights LaCAM used
 model = GNNPlanner.reconstruct("assets/pretrained/success_best.pt")
 
 # Create the optimizer
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3 if FROM_SCRATCH else 1e-5)
 
-TEST_SEEDS = range(10000, 10020) # 20 Fixed scenarios, different from seeds used in training
+TEST_SEEDS = range(10000, 10100) # 100 Fixed scenarios, different from seeds used in training
 
 # Play the fixed test scenarios with greedy moves. Returns success rate, mean cost ratio
 @torch.no_grad() # Testing only, no gradients needed
 def evaluate(model):
     ratios, successes = [], []
+    ratios_by_agents = {} # For printing
     for i, seed in enumerate(TEST_SEEDS):
 
-        grid_config = GridConfig(
-            num_agents=AGENT_COUNTS[i % len(AGENT_COUNTS)], size=MAP_SIZE, density=0.2, seed=seed,
-            max_episode_steps=MAX_STEPS, obs_radius=5,
-            observation_type="MAPF", on_target="nothing",
-            collision_system="soft",
-        )
+        grid_config = make_map(seed)
 
         # LaCAM plays the test scenario with the current model (argmax, no learning)
         planner = LagatInference(cfg=LagatInferenceConfig(model_path=current_jit, lns=False))
@@ -61,7 +57,12 @@ def evaluate(model):
         if quality["solved"]:
             # Cost ratio: total cost / lower bound where 1.0 is perfect
             ratios.append(quality["sum_of_costs_subopt"])
+            ratios_by_agents.setdefault(grid_config.num_agents, []).append(quality["sum_of_costs_subopt"])
 
+    # Mean cost ratio for each agent count
+    for n, r in sorted(ratios_by_agents.items()):
+        print(f"{n} agents: mean cost ratio {sum(r) / len(r):.4f} over {len(r)} solved maps")
+    
     success_rate = sum(successes) / len(successes)
     mean_ratio = sum(ratios) / len(ratios) if ratios else float("nan") # Return nan if nothing was solved
 
@@ -79,13 +80,9 @@ for batch in range(NUM_BATCHES):
 
     for k in range(K):
         planner.cfg.seed = batch * K + k # LaCAM seed per run
-        num_agents = random.choice(AGENT_COUNTS)
-        grid_config = GridConfig(
-            num_agents=num_agents, size=MAP_SIZE, density=0.2, seed=batch * K +k,
-            max_episode_steps=MAX_STEPS, obs_radius=5,
-            observation_type="MAPF", on_target="nothing",
-            collision_system="soft",
-        )
+        
+        grid_config = make_map(batch * K + k) # Training map from the same generator as the test, different seeds
+        num_agents = grid_config.num_agents
 
         # Remove the previous episode's file so we never train on old x's
         if os.path.exists(RECORD_PATH):
@@ -101,7 +98,7 @@ for batch in range(NUM_BATCHES):
             continue
 
         # Load the x's LaCAM just recorded for this scenario
-        node_features, edge_index, edge_attr, recorded_L = torch.load(RECORD_PATH, weights_only=False)
+        node_features, edge_index, edge_attr, recorded_L, valid = torch.load(RECORD_PATH, weights_only=False)
 
         total_log_pi = 0
         total_entropy = 0
@@ -110,6 +107,8 @@ for batch in range(NUM_BATCHES):
             data = Data(x = node_features[i], edge_index=edge_index[i], edge_attr=edge_attr[i])
             # Model scores for every agent's 5 moves
             logits = model(data)
+            # Walls can never get picked, so give them about 0% probability
+            logits = logits.masked_fill(~valid[i], -1e9)
             # log probabilities of the 5 moves for each agent
             log_probs = F.log_softmax(logits, dim = -1)
             # Turn log probabilities to probabilities

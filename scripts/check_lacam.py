@@ -24,13 +24,14 @@ planner = LagatInference(cfg=lagat_config)
 env, actions, observations, terminated = run_full_horizon_planner(planner=planner, grid_config=grid_config)
 
 path = os.path.join(tempfile.gettempdir(), "recorded_x.pt")
-node_features, edge_index, edge_attr, recorded_L = torch.load(path, weights_only=False)
+node_features, edge_index, edge_attr, recorded_L, valid = torch.load(path, weights_only=False)
 print(f"How many x's: {len(node_features)}")
 print(f"How many L's: {len(recorded_L)}")
 print(f"Shape node_feautres: {node_features[0].shape}")
 print(f"Shape edge_index: {edge_index[0].shape}")
 print(f"Shape edge_attr: {edge_attr[0].shape}")
 print(f"Shape recorded_L: {recorded_L[0].shape}")
+print(f"Shape valid: {valid[0].shape}")
 
 print(get_solution_quality(actions, observations, terminated))
 
